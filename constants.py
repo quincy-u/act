@@ -1,7 +1,7 @@
 import pathlib
 
 ### Task parameters
-DATA_DIR = '<put your data dir here>'
+DATA_DIR = '/home/quincy/dev/act/data/'
 SIM_TASK_CONFIGS = {
     'sim_transfer_cube_scripted':{
         'dataset_dir': DATA_DIR + '/sim_transfer_cube_scripted',
@@ -29,6 +29,13 @@ SIM_TASK_CONFIGS = {
         'num_episodes': 50,
         'episode_len': 500,
         'camera_names': ['top']
+    },
+
+    'Humanoid-Open-Drawer-v0': {
+        'dataset_dir': DATA_DIR,
+        'num_episodes': 30,
+        'episode_len': 260,
+        'camera_names': ['main']
     },
 }
 

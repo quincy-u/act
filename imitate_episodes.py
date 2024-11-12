@@ -21,6 +21,9 @@ from sim_env import BOX_POSE
 import IPython
 e = IPython.embed
 
+left_hand_joint_ids = [26, 36, 27, 37, 28, 38, 29, 39, 30, 40, 46, 48]
+right_hand_joint_ids = [31, 41, 32, 42, 33, 43, 34, 44, 35, 45, 47, 49]
+
 def main(args):
     set_seed(1)
     # command line parameters
@@ -35,6 +38,7 @@ def main(args):
 
     # get task parameters
     is_sim = task_name[:4] == 'sim_'
+    is_sim = True if task_name.startswith('Humanoid') else False
     if is_sim:
         from constants import SIM_TASK_CONFIGS
         task_config = SIM_TASK_CONFIGS[task_name]
@@ -47,7 +51,7 @@ def main(args):
     camera_names = task_config['camera_names']
 
     # fixed parameters
-    state_dim = 14
+    state_dim = 38
     lr_backbone = 1e-5
     backbone = 'resnet18'
     if policy_class == 'ACT':
@@ -65,6 +69,7 @@ def main(args):
                          'dec_layers': dec_layers,
                          'nheads': nheads,
                          'camera_names': camera_names,
+                         'state_dim': state_dim,
                          }
     elif policy_class == 'CNNMLP':
         policy_config = {'lr': args['lr'], 'lr_backbone': lr_backbone, 'backbone' : backbone, 'num_queries': 1,
@@ -147,6 +152,11 @@ def get_image(ts, camera_names):
     curr_image = torch.from_numpy(curr_image / 255.0).float().cuda().unsqueeze(0)
     return curr_image
 
+def get_image(obs):
+    curr_image = rearrange(obs['fixed_rgb'].squeeze(), 'h w c -> c h w')
+    curr_image = (curr_image / 255.0).float().cuda().unsqueeze(0).unsqueeze(0)
+    return curr_image
+
 
 def eval_bc(config, ckpt_name, save_episode=True):
     set_seed(1000)
@@ -160,7 +170,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     max_timesteps = config['episode_len']
     task_name = config['task_name']
     temporal_agg = config['temporal_agg']
-    onscreen_cam = 'angle'
+    onscreen_cam = 'main'
 
     # load policy and stats
     ckpt_path = os.path.join(ckpt_dir, ckpt_name)
@@ -184,9 +194,26 @@ def eval_bc(config, ckpt_name, save_episode=True):
         env = make_real_env(init_node=True)
         env_max_reward = 0
     else:
-        from sim_env import make_sim_env
+        from isaaclab_env import make_sim_env
         env = make_sim_env(task_name)
-        env_max_reward = env.task.max_reward
+        # env_max_reward = env.task.max_reward
+    
+    from omni.isaac.lab.controllers import DifferentialIKController, DifferentialIKControllerCfg
+    from omni.isaac.lab.utils.math import subtract_frame_transforms
+    # IK controllers
+    command_type = "pose"
+    left_ik_cfg = DifferentialIKControllerCfg(command_type=command_type, use_relative_mode=False, ik_method="dls")
+    left_ik_controller = DifferentialIKController(left_ik_cfg, num_envs=env.scene.num_envs, device=env.sim.device)
+    right_ik_cfg = DifferentialIKControllerCfg(command_type=command_type, use_relative_mode=False, ik_method="pinv")
+    right_ik_controller = DifferentialIKController(right_ik_cfg, num_envs=env.scene.num_envs, device=env.sim.device)
+    left_jacobin_idx = env.left_ee_idx-1
+    right_jacobin_idx = env.right_ee_idx-1
+
+    # Create buffers to store actions
+    left_ik_commands_world = torch.zeros(env.scene.num_envs, left_ik_controller.action_dim, device=env.robot.device)
+    left_ik_commands_robot = torch.zeros(env.scene.num_envs, left_ik_controller.action_dim, device=env.robot.device)
+    right_ik_commands_world = torch.zeros(env.scene.num_envs, right_ik_controller.action_dim, device=env.robot.device)
+    right_ik_commands_robot = torch.zeros(env.scene.num_envs, right_ik_controller.action_dim, device=env.robot.device)
 
     query_frequency = policy_config['num_queries']
     if temporal_agg:
@@ -195,54 +222,60 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
     max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
 
-    num_rollouts = 50
+    num_rollouts = 2
     episode_returns = []
     highest_rewards = []
+    num_success = 0
+    curr_rollout_success = False
     for rollout_id in range(num_rollouts):
         rollout_id += 0
-        ### set task
-        if 'sim_transfer_cube' in task_name:
-            BOX_POSE[0] = sample_box_pose() # used in sim reset
-        elif 'sim_insertion' in task_name:
-            BOX_POSE[0] = np.concatenate(sample_insertion_pose()) # used in sim reset
+        # ### set task
+        # if 'sim_transfer_cube' in task_name:
+        #     BOX_POSE[0] = sample_box_pose() # used in sim reset
+        # elif 'sim_insertion' in task_name:
+        #     BOX_POSE[0] = np.concatenate(sample_insertion_pose()) # used in sim reset
 
-        ts = env.reset()
+        curr_rollout_success = False
 
-        ### onscreen render
-        if onscreen_render:
-            ax = plt.subplot()
-            plt_img = ax.imshow(env._physics.render(height=480, width=640, camera_id=onscreen_cam))
-            plt.ion()
+        # ### onscreen render
+        # if onscreen_render:
+        #     ax = plt.subplot()
+        #     plt_img = ax.imshow(env._physics.render(height=480, width=640, camera_id=onscreen_cam))
+        #     plt.ion()
 
         ### evaluation loop
         if temporal_agg:
             all_time_actions = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
 
-        qpos_history = torch.zeros((1, max_timesteps, state_dim)).cuda()
+        qpos_history = torch.zeros((1, max_timesteps, 50)).cuda()
         image_list = [] # for visualization
         qpos_list = []
         target_qpos_list = []
-        rewards = []
+        # rewards = []
         with torch.inference_mode():
+            print('Env Resetting ....')
+            obs, _ = env.reset()
+            left_ik_controller.reset()
+            right_ik_controller.reset()
             for t in range(max_timesteps):
                 ### update onscreen render and wait for DT
-                if onscreen_render:
-                    image = env._physics.render(height=480, width=640, camera_id=onscreen_cam)
-                    plt_img.set_data(image)
-                    plt.pause(DT)
+                # if onscreen_render:
+                #     image = env._physics.render(height=480, width=640, camera_id=onscreen_cam)
+                #     plt_img.set_data(image)
+                #     plt.pause(DT)
 
                 ### process previous timestep to get qpos and image_list
-                obs = ts.observation
-                if 'images' in obs:
-                    image_list.append(obs['images'])
-                else:
-                    image_list.append({'main': obs['image']})
-                qpos_numpy = np.array(obs['qpos'])
+                # obs = ts.observation
+                # if 'image' in obs:
+                #     image_list.append(obs['image'])
+                # else:
+                #     image_list.append({'main': obs['image']})
+                image_list.append({'main': obs['fixed_rgb'].squeeze().cpu().numpy()})
+                qpos_numpy = np.array(obs['qpos'].squeeze().cpu().numpy())
                 qpos = pre_process(qpos_numpy)
-                qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
+                qpos = torch.from_numpy(qpos_numpy).float().cuda().unsqueeze(0)
                 qpos_history[:, t] = qpos
-                curr_image = get_image(ts, camera_names)
-
+                curr_image = get_image(obs)
                 ### query policy
                 if config['policy_class'] == "ACT":
                     if t % query_frequency == 0:
@@ -267,28 +300,67 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 ### post-process actions
                 raw_action = raw_action.squeeze(0).cpu().numpy()
                 action = post_process(raw_action)
-                target_qpos = action
+                action = torch.tensor(action, device=env.device)
+
+                # obtain quantities from simulation
+                robot_pose_w = env.robot.data.root_state_w[:, 0:7]
+                left_arm_jacobian = env.robot.root_physx_view.get_jacobians()[:, left_jacobin_idx, :, env.cfg.left_arm_cfg.joint_ids]
+                left_ee_curr_pose_world = env.robot.data.body_state_w[:, env.cfg.left_arm_cfg.body_ids[0], 0:7]
+                left_joint_pos = env.robot.data.joint_pos[:, env.cfg.left_arm_cfg.joint_ids]
+                right_arm_jacobian = env.robot.root_physx_view.get_jacobians()[:, right_jacobin_idx, :, env.cfg.right_arm_cfg.joint_ids]
+                right_ee_curr_pose_world = env.robot.data.body_state_w[:, env.cfg.right_arm_cfg.body_ids[0], 0:7]
+                right_joint_pos = env.robot.data.joint_pos[:, env.cfg.right_arm_cfg.joint_ids]
+                # prepare IK 
+                left_ee_curr_pose_robot, left_ee_curr_quat_robot = subtract_frame_transforms(
+                    robot_pose_w[:, 0:3], robot_pose_w[:, 3:7], left_ee_curr_pose_world[:, 0:3], left_ee_curr_pose_world[:, 3:7]
+                )
+                right_ee_curr_pos_robot, right_ee_curr_quat_robot = subtract_frame_transforms(
+                    robot_pose_w[:, 0:3], robot_pose_w[:, 3:7], right_ee_curr_pose_world[:, 0:3], right_ee_curr_pose_world[:, 3:7]
+                )
+                left_ik_commands_world[:, 0:7] = torch.tensor(action[0 : 7], device=env.device)
+                left_ik_commands_robot[:, 0:3], left_ik_commands_robot[:, 3:7] = subtract_frame_transforms(
+                    robot_pose_w[:, 0:3], robot_pose_w[:, 3:7], left_ik_commands_world[:, 0:3], left_ik_commands_world[:, 3:7]
+                )
+                right_ik_commands_world[:, 0:7] = torch.tensor(action[7 : 14], device=env.device)
+                right_ik_commands_robot[:, 0:3], right_ik_commands_robot[:, 3:7] = subtract_frame_transforms(
+                    robot_pose_w[:, 0:3], robot_pose_w[:, 3:7], right_ik_commands_world[:, 0:3], right_ik_commands_world[:, 3:7]
+                )
+                left_ik_controller.set_command(left_ik_commands_robot, left_ee_curr_pose_robot, left_ee_curr_quat_robot)
+                right_ik_controller.set_command(right_ik_commands_robot, right_ee_curr_pos_robot, right_ee_curr_quat_robot)
+                # compute the joint commands
+                left_joint_pos_des = left_ik_controller.compute(left_ee_curr_pose_robot, left_ee_curr_quat_robot, left_arm_jacobian, left_joint_pos)
+                right_joint_pos_des = right_ik_controller.compute(right_ee_curr_pos_robot, right_ee_curr_quat_robot, right_arm_jacobian, right_joint_pos)
+            
+                target_qpos = torch.zeros(size=(1, 50), device=env.device)
+                target_qpos[:, env.cfg.left_arm_cfg.joint_ids] = left_joint_pos_des
+                target_qpos[:, env.cfg.right_arm_cfg.joint_ids] = right_joint_pos_des
+                target_qpos[:, left_hand_joint_ids] = action[14:26]
+                target_qpos[:, right_hand_joint_ids] = action[26:38]
 
                 ### step the environment
-                ts = env.step(target_qpos)
+                obs, _, _, _, _ = env.step(target_qpos)
+                if obs['success'] and not curr_rollout_success:
+                    num_success += 1
+                    curr_rollout_success = True
 
-                ### for visualization
-                qpos_list.append(qpos_numpy)
-                target_qpos_list.append(target_qpos)
-                rewards.append(ts.reward)
+                # ### for visualization
+                # qpos_list.append(qpos_numpy)
+                # target_qpos_list.append(target_qpos)
+                # rewards.append(ts.reward)
 
-            plt.close()
+            # plt.close()
         if real_robot:
             move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5)  # open
             pass
 
-        rewards = np.array(rewards)
-        episode_return = np.sum(rewards[rewards!=None])
-        episode_returns.append(episode_return)
-        episode_highest_reward = np.max(rewards)
-        highest_rewards.append(episode_highest_reward)
-        print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
-
+        # rewards = np.array(rewards)
+        # episode_return = np.sum(rewards[rewards!=None])
+        # episode_returns.append(episode_return)
+        # episode_highest_reward = np.max(rewards)
+        # highest_rewards.append(episode_highest_reward)
+        # print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
+        print(f'{num_success} successful rollouts out of {num_rollouts}.')
+        
         if save_episode:
             save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
 
