@@ -159,7 +159,7 @@ def main(parent_dir):
                     print(f"File {file_name} not found in {task_name_shorten}")
                 else:
                     print(f"Downloading {file_name} from folder {task_name_shorten}")
-                    local_path = f'{parent_dir}/dev/act/raw_data/{file_name}'
+                    local_path = f'{parent_dir}/act/raw_data/{file_name}'
                     download_file(service, file['id'], local_path)
             pad_episodes_args = ['--dataset_dir', f'{parent_dir}/act/raw_data', '--target_dir', f'{parent_dir}/act/data/', '--num_episode', '40']
             pad_episodes_script_path = f'{parent_dir}/act/pad_episodes.py'
@@ -167,7 +167,7 @@ def main(parent_dir):
             print("Output:", result.stdout)
             print("Errors:", result.stderr)
 
-            ckpt_dir = f'{parent_dir}/dev/act/ckpt/{task_name_shorten}'
+            ckpt_dir = f'{parent_dir}/act/ckpt/{task_name_shorten}'
             if not os.path.exists(ckpt_dir):
                 os.makedirs(ckpt_dir)
                 print("Folder created:", ckpt_dir)
