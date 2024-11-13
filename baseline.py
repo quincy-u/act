@@ -152,7 +152,7 @@ def main(parent_dir):
             task_name = f'Humanoid-{task_name_shorten}-v0'
             print('='*100)
             print(f'Processing task: {task_name}')
-            for episode_idx in range(0):
+            for episode_idx in range(40):
                 file_name = f"episode_{episode_idx}.hdf5"
                 file = find_file(service, task['id'], file_name)
                 if not file:
