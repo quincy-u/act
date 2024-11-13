@@ -159,7 +159,7 @@ def main():
                     print(f"Downloading {file_name} from folder {task_name_shorten}")
                     local_path = f'/home/quincy/dev/act/raw_data/{file_name}'
                     download_file(service, file['id'], local_path)
-            pad_episodes_args = ['--dataset_dir', '/home/quincy/dev/act/raw_data', '--target_dir', '/home/quincy/dev/act/data/', '--num_episode', '30']
+            pad_episodes_args = ['--dataset_dir', '/home/quincy/dev/act/raw_data', '--target_dir', '/home/quincy/dev/act/data/', '--num_episode', '40']
             pad_episodes_script_path = '/home/quincy/dev/act/pad_episodes.py'
             result = subprocess.run(['python', pad_episodes_script_path] + pad_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             print("Output:", result.stdout)
