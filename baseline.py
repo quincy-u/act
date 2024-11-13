@@ -162,7 +162,7 @@ def main(parent_dir):
                     local_path = f'{parent_dir}/dev/act/raw_data/{file_name}'
                     download_file(service, file['id'], local_path)
             pad_episodes_args = ['--dataset_dir', f'{parent_dir}/act/raw_data', '--target_dir', f'{parent_dir}/act/data/', '--num_episode', '40']
-            pad_episodes_script_path = f'{parent_dir}/dev/act/pad_episodes.py'
+            pad_episodes_script_path = f'{parent_dir}/act/pad_episodes.py'
             result = subprocess.run(['python', pad_episodes_script_path] + pad_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             print("Output:", result.stdout)
             print("Errors:", result.stderr)
