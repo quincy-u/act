@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 from tqdm import tqdm
 from einops import rearrange
+import cv2
+import h5py
 
 from constants import DT
 from constants import PUPPET_GRIPPER_JOINT_OPEN
@@ -39,16 +41,43 @@ def main(args):
     # get task parameters
     is_sim = task_name[:4] == 'sim_'
     is_sim = True if task_name.startswith('Humanoid') else False
-    if is_sim:
-        from constants import SIM_TASK_CONFIGS
-        task_config = SIM_TASK_CONFIGS[task_name]
+    # if is_sim:
+    if True:
+        if not is_eval:
+            from constants import SIM_TASK_CONFIGS
+            # if task_name in SIM_TASK_CONFIGS:
+            #     task_config = SIM_TASK_CONFIGS[task_name]
+            # else:
+            f= h5py.File('/home/quincy/dev/act/raw_data/episode_0.hdf5', 'r')
+            episode_len = f['observations/qpos'].shape[0]
+            task_config = {
+                'dataset_dir': '/home/quincy/dev/act/data/',
+                'num_episodes': 40,
+                'episode_len': episode_len,
+                'camera_names': ['main'],
+            },
+            dataset_dir = '/home/quincy/dev/act/data/'
+            num_episodes = 40
+            episode_len = episode_len
+            camera_names = ['main']
+        else:
+            episode_len = 450
+            num_episodes = 40
+            camera_names = ['main']
+            task_config = {
+                'dataset_dir': '/home/quincy/dev/act/data/',
+                'num_episodes': 40,
+                'episode_len': episode_len,
+                'camera_names': ['main'],
+            },
     else:
         from aloha_scripts.constants import TASK_CONFIGS
         task_config = TASK_CONFIGS[task_name]
-    dataset_dir = task_config['dataset_dir']
-    num_episodes = task_config['num_episodes']
-    episode_len = task_config['episode_len']
-    camera_names = task_config['camera_names']
+    # print(task_config)
+    # dataset_dir = task_config['dataset_dir']
+    # num_episodes = task_config['num_episodes']
+    # episode_len = task_config['episode_len']
+    # camera_names = task_config['camera_names']
 
     # fixed parameters
     state_dim = 38
@@ -90,11 +119,13 @@ def main(args):
         'seed': args['seed'],
         'temporal_agg': args['temporal_agg'],
         'camera_names': camera_names,
-        'real_robot': not is_sim
+        'real_robot': not is_sim,
+        'room_idx': args['room_idx']
     }
 
     if is_eval:
         ckpt_names = [f'policy_best.ckpt']
+        # ckpt_names = ['policy_epoch_6000_seed_0.ckpt']
         results = []
         for ckpt_name in ckpt_names:
             success_rate, avg_return = eval_bc(config, ckpt_name, save_episode=True)
@@ -153,7 +184,9 @@ def get_image(ts, camera_names):
     return curr_image
 
 def get_image(obs):
-    curr_image = rearrange(obs['fixed_rgb'].squeeze(), 'h w c -> c h w')
+    image = obs['fixed_rgb'].squeeze().cpu().numpy()
+    image = cv2.resize(image, (384, 384), interpolation=cv2.INTER_LINEAR)
+    curr_image = torch.tensor(rearrange(image, 'h w c -> c h w'))
     curr_image = (curr_image / 255.0).float().cuda().unsqueeze(0).unsqueeze(0)
     return curr_image
 
@@ -195,7 +228,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
         env_max_reward = 0
     else:
         from isaaclab_env import make_sim_env
-        env = make_sim_env(task_name)
+        env = make_sim_env(task_name, config['room_idx'])
         # env_max_reward = env.task.max_reward
     
     from omni.isaac.lab.controllers import DifferentialIKController, DifferentialIKControllerCfg
@@ -221,8 +254,9 @@ def eval_bc(config, ckpt_name, save_episode=True):
         num_queries = policy_config['num_queries']
 
     max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
+    max_timesteps = 450
 
-    num_rollouts = 2
+    num_rollouts = 5
     episode_returns = []
     highest_rewards = []
     num_success = 0
@@ -342,6 +376,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 if obs['success'] and not curr_rollout_success:
                     num_success += 1
                     curr_rollout_success = True
+                    break
 
                 # ### for visualization
                 # qpos_list.append(qpos_numpy)
@@ -360,29 +395,29 @@ def eval_bc(config, ckpt_name, save_episode=True):
         # highest_rewards.append(episode_highest_reward)
         # print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
         print(f'{num_success} successful rollouts out of {num_rollouts}.')
-        
         if save_episode:
-            save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
+            room_idx = config['room_idx']
+            save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{room_idx}{rollout_id}.mp4'))
 
-    success_rate = np.mean(np.array(highest_rewards) == env_max_reward)
-    avg_return = np.mean(episode_returns)
-    summary_str = f'\nSuccess rate: {success_rate}\nAverage return: {avg_return}\n\n'
-    for r in range(env_max_reward+1):
-        more_or_equal_r = (np.array(highest_rewards) >= r).sum()
-        more_or_equal_r_rate = more_or_equal_r / num_rollouts
-        summary_str += f'Reward >= {r}: {more_or_equal_r}/{num_rollouts} = {more_or_equal_r_rate*100}%\n'
+    # success_rate = np.mean(np.array(highest_rewards) == env_max_reward)
+    # avg_return = np.mean(episode_returns)
+    # summary_str = f'\nSuccess rate: {success_rate}\nAverage return: {avg_return}\n\n'
+    # for r in range(env_max_reward+1):
+    #     more_or_equal_r = (np.array(highest_rewards) >= r).sum()
+    #     more_or_equal_r_rate = more_or_equal_r / num_rollouts
+    #     summary_str += f'Reward >= {r}: {more_or_equal_r}/{num_rollouts} = {more_or_equal_r_rate*100}%\n'
 
-    print(summary_str)
+    # print(summary_str)
 
     # save success rate to txt
-    result_file_name = 'result_' + ckpt_name.split('.')[0] + '.txt'
-    with open(os.path.join(ckpt_dir, result_file_name), 'w') as f:
-        f.write(summary_str)
-        f.write(repr(episode_returns))
-        f.write('\n\n')
-        f.write(repr(highest_rewards))
+    # result_file_name = 'result_' + ckpt_name.split('.')[0] + '.txt'
+    result_file_name = 'eval_summary.txt'
+    with open(os.path.join('/home/quincy/dev/act/', result_file_name), 'a') as f:
+        f.write(task_name + ', ' + str(config['room_idx']) + ': ' + str(num_success))
+        f.write('\n')
+        f.close()
 
-    return success_rate, avg_return
+    return 0, 0
 
 
 def forward_pass(data, policy):
@@ -503,5 +538,8 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
+    
+    # isaaclab
+    parser.add_argument('--room_idx', action='store', type=int, help='room_idx', required=False, default=1)
     
     main(vars(parser.parse_args()))

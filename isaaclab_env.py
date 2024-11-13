@@ -1,8 +1,8 @@
-def make_sim_env(task):
+def make_sim_env(task, room_idx):
     from omni.isaac.lab.app import AppLauncher
 
     # launch omniverse app
-    app_launcher = AppLauncher(enable_cameras=True)
+    app_launcher = AppLauncher(enable_cameras=True, headless=False)
     simulation_app = app_launcher.app
 
     """Rest everything follows."""
@@ -15,6 +15,9 @@ def make_sim_env(task):
         task, num_envs=1, use_fabric=True
     )
     env_cfg.use_ik = False
+    env_cfg.room_idx = room_idx
+    env_cfg.spawn_background = True
+    env_cfg.episode_length_s = 15
     # create environment
     env = gym.make(task, cfg=env_cfg)
 

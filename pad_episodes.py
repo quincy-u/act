@@ -16,6 +16,20 @@ STATE_NAMES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '1
 left_hand_joint_ids = [26, 36, 27, 37, 28, 38, 29, 39, 30, 40, 46, 48]
 right_hand_joint_ids = [31, 41, 32, 42, 33, 43, 34, 44, 35, 45, 47, 49]
 
+def resize_images_bilinear(batch_images, target_width, target_height):
+    # Extract the trajectory length and original dimensions
+    trajectory_length, original_height, original_width, channels = batch_images.shape
+
+    # Prepare an array to hold the resized images
+    resized_images = np.zeros((trajectory_length, target_height, target_width, channels), dtype=np.uint8)
+
+    # Resize each image in the batch
+    for i in range(trajectory_length):
+        resized_images[i] = cv2.resize(batch_images[i], (target_width, target_height), interpolation=cv2.INTER_LINEAR)
+
+    return resized_images
+
+
 def load_hdf5(dataset_dir, dataset_name):
     dataset_path = os.path.join(dataset_dir, dataset_name + '.hdf5')
     if not os.path.isfile(dataset_path):
@@ -45,6 +59,7 @@ def pad_hdf5(dataset_dir, target_dir, dataset_name, total_length):
 
     with h5py.File(input_dataset_path, 'r') as input_file, h5py.File(output_dataset_path, 'w') as output_file:
         images = input_file['/observations/images/main'][()]
+        images = resize_images_bilinear(images, 384, 384)
         qpos = input_file['/observations/qpos'][()]
         qvel = input_file['/observations/qvel'][()]
         left_ee_pose = input_file['/observations/left_ee_pose'][()]
@@ -57,7 +72,7 @@ def pad_hdf5(dataset_dir, target_dir, dataset_name, total_length):
         output_file.attrs['sim'] = input_file.attrs['sim']
 
         # Create datasets in the new file
-        output_file.create_dataset('/observations/images/main', (total_length,) + input_file['/observations/images/main'].shape[1:], dtype=input_file['/observations/images/main'].dtype)
+        output_file.create_dataset('/observations/images/main', (total_length,) + images.shape[1:], dtype=images.dtype)
         output_file.create_dataset('/observations/qpos', (total_length, qpos.shape[1]), dtype=qpos.dtype)
         output_file.create_dataset('/observations/qvel', (total_length, qvel.shape[1]), dtype=qvel.dtype)
         output_file.create_dataset('/observations/left_ee_pose', (total_length, left_ee_pose.shape[1]), dtype=left_ee_pose.dtype)
