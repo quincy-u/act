@@ -1,3 +1,4 @@
+import argparse
 import gc
 
 import numpy as np
@@ -30,7 +31,8 @@ def authenticate_google_drive():
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
+            # pip install google-api-python-client==1.7.2 google-auth==1.8.0 google-auth-httplib2==0.0.3 google-auth-oauthlib==0.4.1
+            creds = flow.run_console()
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
             
@@ -138,7 +140,7 @@ def pad_hdf5(source_hdf5, target_dir, file_name, total_length):
         print('Saving to ', output_dataset_path)
         output_file.close()
 
-def main():
+def main(parent_dir):
     folder_link = 'https://drive.google.com/drive/folders/1I2QcdQqSNcgVDoDkO0AmPwfz3TkCIUhp'  # Replace with your Google Drive folder link
     folder_id = folder_link.split('/')[-1]  # Extract ID from the link
     service = authenticate_google_drive()
@@ -157,20 +159,20 @@ def main():
                     print(f"File {file_name} not found in {task_name_shorten}")
                 else:
                     print(f"Downloading {file_name} from folder {task_name_shorten}")
-                    local_path = f'/home/quincy/dev/act/raw_data/{file_name}'
+                    local_path = f'{parent_dir}/dev/act/raw_data/{file_name}'
                     download_file(service, file['id'], local_path)
-            pad_episodes_args = ['--dataset_dir', '/home/quincy/dev/act/raw_data', '--target_dir', '/home/quincy/dev/act/data/', '--num_episode', '40']
-            pad_episodes_script_path = '/home/quincy/dev/act/pad_episodes.py'
+            pad_episodes_args = ['--dataset_dir', f'{parent_dir}/act/raw_data', '--target_dir', f'{parent_dir}/act/data/', '--num_episode', '40']
+            pad_episodes_script_path = f'{parent_dir}/dev/act/pad_episodes.py'
             result = subprocess.run(['python', pad_episodes_script_path] + pad_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             print("Output:", result.stdout)
             print("Errors:", result.stderr)
 
-            ckpt_dir = f'/home/quincy/dev/act/ckpt/{task_name_shorten}'
+            ckpt_dir = f'{parent_dir}/dev/act/ckpt/{task_name_shorten}'
             if not os.path.exists(ckpt_dir):
                 os.makedirs(ckpt_dir)
                 print("Folder created:", ckpt_dir)
             imitate_episodes_args = ['--task_name', task_name, '--policy_class', 'ACT', '--kl_weight' ,'10' ,'--chunk_size' ,'200' ,'--hidden_dim' ,'512', '--batch_size', '64' ,'--dim_feedforward', '3200' ,'--num_epochs', '10000',  '--lr' ,'5e-5' ,'--seed', '0' ,'--ckpt_dir' ,ckpt_dir]
-            imitate_episodes_script_path = '/home/quincy/dev/act/imitate_episodes.py'
+            imitate_episodes_script_path = f'{parent_dir}/act/imitate_episodes.py'
             result = subprocess.run(['python', imitate_episodes_script_path] + imitate_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             print("Output:", result.stdout)
             print("Errors:", result.stderr)
@@ -178,3 +180,8 @@ def main():
             gc.collect()
 if __name__ == '__main__':
     main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--server', action='store_true')
+    args = parser.parse_args()
+    parent_dir = '/data/quincyu' if args.server else '/home/quincy/dev'
+    main(parent_dir)
