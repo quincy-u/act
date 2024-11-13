@@ -124,8 +124,8 @@ def main(args):
     }
 
     if is_eval:
-        ckpt_names = [f'policy_best.ckpt']
-        # ckpt_names = ['policy_epoch_6000_seed_0.ckpt']
+        # ckpt_names = [f'policy_best.ckpt']
+        ckpt_names = ['policy_epoch_4000_seed_0.ckpt']
         results = []
         for ckpt_name in ckpt_names:
             success_rate, avg_return = eval_bc(config, ckpt_name, save_episode=True)
