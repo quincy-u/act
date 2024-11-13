@@ -179,7 +179,6 @@ def main(parent_dir):
                     
             gc.collect()
 if __name__ == '__main__':
-    main()
     parser = argparse.ArgumentParser()
     parser.add_argument('--server', action='store_true')
     args = parser.parse_args()
