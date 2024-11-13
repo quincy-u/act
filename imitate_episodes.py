@@ -1,3 +1,4 @@
+import re
 import torch
 import numpy as np
 import os
@@ -125,7 +126,8 @@ def main(args):
 
     if is_eval:
         # ckpt_names = [f'policy_best.ckpt']
-        ckpt_names = ['policy_epoch_4000_seed_0.ckpt']
+        # ckpt_names = [f'policy_last.ckpt']
+        ckpt_names = ['policy_epoch_9500_seed_0.ckpt']
         results = []
         for ckpt_name in ckpt_names:
             success_rate, avg_return = eval_bc(config, ckpt_name, save_episode=True)
@@ -291,6 +293,8 @@ def eval_bc(config, ckpt_name, save_episode=True):
             obs, _ = env.reset()
             left_ik_controller.reset()
             right_ik_controller.reset()
+            for _ in range(20):
+                env.step(env.robot.data.joint_pos)
             for t in range(max_timesteps):
                 ### update onscreen render and wait for DT
                 # if onscreen_render:
@@ -364,7 +368,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 # compute the joint commands
                 left_joint_pos_des = left_ik_controller.compute(left_ee_curr_pose_robot, left_ee_curr_quat_robot, left_arm_jacobian, left_joint_pos)
                 right_joint_pos_des = right_ik_controller.compute(right_ee_curr_pos_robot, right_ee_curr_quat_robot, right_arm_jacobian, right_joint_pos)
-            
+                
                 target_qpos = torch.zeros(size=(1, 50), device=env.device)
                 target_qpos[:, env.cfg.left_arm_cfg.joint_ids] = left_joint_pos_des
                 target_qpos[:, env.cfg.right_arm_cfg.joint_ids] = right_joint_pos_des
@@ -436,6 +440,28 @@ def train_bc(train_dataloader, val_dataloader, config):
     set_seed(seed)
 
     policy = make_policy(policy_class, policy_config)
+
+    # Regular expression to extract the epoch number
+    pattern = re.compile(r"policy_epoch_(\d+)_seed_\d+\.ckpt")
+
+    # Initialize variable to store the largest epoch number
+    last_epoch = -1
+
+    # Iterate over files in the directory
+    for filename in os.listdir(ckpt_dir):
+        match = pattern.match(filename)
+        if match:
+            # Convert the epoch number from string to integer
+            epoch_number = int(match.group(1))
+            # Update largest_epoch if the current epoch number is larger
+            if epoch_number > last_epoch:
+                last_epoch = epoch_number
+    if last_epoch > -1:
+        ckpt_path = os.path.join(ckpt_dir, 'policy_last.ckpt')
+        loading_status = policy.load_state_dict(torch.load(ckpt_path))
+        print(f'last epoch : {last_epoch}, {num_epochs} left')
+        num_epochs = 10000 - last_epoch
+    
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
 
