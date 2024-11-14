@@ -40,8 +40,12 @@ def load_hdf5(dataset_dir, dataset_name):
         is_sim = root.attrs['sim']
         qpos = root['/observations/qpos'][()]
         qvel = root['/observations/qvel'][()]
-        left_ee_pose = root['/observations/left_ee_pose'][()]
-        right_ee_pose = root['/observations/right_ee_pose'][()]
+        if '/observations/left_ee_pose' not in root:
+            left_ee_pose = root['/observations/left_curr_ee_pose'][()]
+            right_ee_pose = root['/observations/right_curr_ee_pose'][()]
+        else:
+            left_ee_pose = root['/observations/left_ee_pose'][()]
+            right_ee_pose = root['/observations/right_ee_pose'][()]
         left_finger_pos = root['/action'][()][:, left_hand_joint_ids]
         right_finger_pos = root['/action'][()][:, right_hand_joint_ids]
         action = np.concatenate([left_ee_pose, right_ee_pose, left_finger_pos, right_finger_pos], axis=-1)
@@ -49,9 +53,14 @@ def load_hdf5(dataset_dir, dataset_name):
         for cam_name in root[f'/observations/images/'].keys():
             if cam_name == 'main':
                 image_dict[cam_name] = root[f'/observations/images/{cam_name}'][()]
+        success = root['/observations/success'][()]
+        for i in range(success.shape[0]):
+            if success[i]:
+                episode_len = i + 10
+                break
         root.close()
 
-    return qpos, qvel, action, image_dict, action.shape[0] 
+    return qpos, qvel, action, image_dict, episode_len
 
 def pad_hdf5(dataset_dir, target_dir, dataset_name, total_length):
     input_dataset_path = os.path.join(dataset_dir, dataset_name + '.hdf5')
@@ -62,15 +71,22 @@ def pad_hdf5(dataset_dir, target_dir, dataset_name, total_length):
         images = resize_images_bilinear(images, 384, 384)
         qpos = input_file['/observations/qpos'][()]
         qvel = input_file['/observations/qvel'][()]
-        left_ee_pose = input_file['/observations/left_ee_pose'][()]
-        right_ee_pose = input_file['/observations/right_ee_pose'][()]
+        if '/observations/left_ee_pose' not in input_file:
+            left_ee_pose = input_file['/observations/left_curr_ee_pose'][()]
+            right_ee_pose = input_file['/observations/right_curr_ee_pose'][()]
+        else:
+            left_ee_pose = input_file['/observations/left_ee_pose'][()]
+            right_ee_pose = input_file['/observations/right_ee_pose'][()]
         left_finger_pos = input_file['/action'][()][:, left_hand_joint_ids]
         right_finger_pos = input_file['/action'][()][:, right_hand_joint_ids]
         action = np.concatenate([left_ee_pose, right_ee_pose, left_finger_pos, right_finger_pos], axis=-1)
-
+        success = input_file['/observations/success'][()]
         # Set attributes and create datasets in the new file
         output_file.attrs['sim'] = input_file.attrs['sim']
-
+        for i in range(success.shape[0]):
+            if success[i]:
+                total_length = i + 10
+                break
         # Create datasets in the new file
         output_file.create_dataset('/observations/images/main', (total_length,) + images.shape[1:], dtype=images.dtype)
         output_file.create_dataset('/observations/qpos', (total_length, qpos.shape[1]), dtype=qpos.dtype)
