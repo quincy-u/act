@@ -49,7 +49,7 @@ def main(args):
             # if task_name in SIM_TASK_CONFIGS:
             #     task_config = SIM_TASK_CONFIGS[task_name]
             # else:
-            f= h5py.File('/home/quincy/dev/act/raw_data/episode_0.hdf5', 'r')
+            f= h5py.File('/home/quincy/dev/act/data/episode_0.hdf5', 'r')
             episode_len = f['observations/qpos'].shape[0]
             task_config = {
                 'dataset_dir': '/home/quincy/dev/act/data/',
@@ -125,9 +125,9 @@ def main(args):
     }
 
     if is_eval:
-        # ckpt_names = [f'policy_best.ckpt']
+        ckpt_names = [f'policy_best.ckpt']
         # ckpt_names = [f'policy_last.ckpt']
-        ckpt_names = ['policy_epoch_9500_seed_0.ckpt']
+        # ckpt_names = ['policy_epoch_2899_seed_0.ckpt']
         results = []
         for ckpt_name in ckpt_names:
             success_rate, avg_return = eval_bc(config, ckpt_name, save_episode=True)
@@ -258,12 +258,21 @@ def eval_bc(config, ckpt_name, save_episode=True):
     max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
     max_timesteps = 450
 
-    num_rollouts = 5
+    num_rollouts = 4
     episode_returns = []
     highest_rewards = []
     num_success = 0
     curr_rollout_success = False
+    read_action_from_file =True
     for rollout_id in range(num_rollouts):
+        if read_action_from_file:
+            with h5py.File('/home/quincy/dev/opentelevision/data/episode_0.hdf5', 'r') as action_file:
+                recorded_action = action_file['/action']
+                recorded_left_ee = action_file['/observations/left_ee_pose']
+                recorded_left_finger = torch.tensor(recorded_action, device=env.device)[:, left_hand_joint_ids]
+                recorded_right_ee = action_file['/observations/right_ee_pose']
+                recorded_right_finger = torch.tensor(recorded_action, device=env.device)[:, right_hand_joint_ids]
+                action_file.close()
         rollout_id += 0
         # ### set task
         # if 'sim_transfer_cube' in task_name:
@@ -355,11 +364,17 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 right_ee_curr_pos_robot, right_ee_curr_quat_robot = subtract_frame_transforms(
                     robot_pose_w[:, 0:3], robot_pose_w[:, 3:7], right_ee_curr_pose_world[:, 0:3], right_ee_curr_pose_world[:, 3:7]
                 )
-                left_ik_commands_world[:, 0:7] = torch.tensor(action[0 : 7], device=env.device)
+                if not read_action_from_file:
+                    left_ik_commands_world[:, 0:7] = torch.tensor(action[0 : 7], device=env.device)
+                else:
+                    left_ik_commands_world[:, 0:7] = torch.tensor(recorded_left_ee[t], device=env.device)
                 left_ik_commands_robot[:, 0:3], left_ik_commands_robot[:, 3:7] = subtract_frame_transforms(
                     robot_pose_w[:, 0:3], robot_pose_w[:, 3:7], left_ik_commands_world[:, 0:3], left_ik_commands_world[:, 3:7]
                 )
-                right_ik_commands_world[:, 0:7] = torch.tensor(action[7 : 14], device=env.device)
+                if not read_action_from_file:
+                    right_ik_commands_world[:, 0:7] = torch.tensor(action[7 : 14], device=env.device)
+                else:
+                    right_ik_commands_world[:, 0:7] = torch.tensor(recorded_right_ee[t], device=env.device)
                 right_ik_commands_robot[:, 0:3], right_ik_commands_robot[:, 3:7] = subtract_frame_transforms(
                     robot_pose_w[:, 0:3], robot_pose_w[:, 3:7], right_ik_commands_world[:, 0:3], right_ik_commands_world[:, 3:7]
                 )
@@ -372,14 +387,24 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 target_qpos = torch.zeros(size=(1, 50), device=env.device)
                 target_qpos[:, env.cfg.left_arm_cfg.joint_ids] = left_joint_pos_des
                 target_qpos[:, env.cfg.right_arm_cfg.joint_ids] = right_joint_pos_des
-                target_qpos[:, left_hand_joint_ids] = action[14:26]
-                target_qpos[:, right_hand_joint_ids] = action[26:38]
+                if not read_action_from_file:
+                    target_qpos[:, left_hand_joint_ids] = action[14:26]
+                    target_qpos[:, right_hand_joint_ids] = action[26:38]
+                else:
+                    target_qpos[:, left_hand_joint_ids] = recorded_left_finger[t]
+                    target_qpos[:, right_hand_joint_ids] = recorded_right_finger[t]
 
                 ### step the environment
-                obs, _, _, _, _ = env.step(target_qpos)
+                obs, _, _, reset, _ = env.step(target_qpos)
+                if not read_action_from_file:
+                    recorded_left_ee[t] = obs['left_target_ee_pose'].squeeze().cpu().numpy()
+                    recorded_right_ee[t] = obs['right_target_ee_pose'].squeeze().cpu().numpy()
                 if obs['success'] and not curr_rollout_success:
                     num_success += 1
                     curr_rollout_success = True
+                    break
+
+                if reset:
                     break
 
                 # ### for visualization
@@ -398,10 +423,17 @@ def eval_bc(config, ckpt_name, save_episode=True):
         # episode_highest_reward = np.max(rewards)
         # highest_rewards.append(episode_highest_reward)
         # print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
-        print(f'{num_success} successful rollouts out of {num_rollouts}.')
+        # print(f'{num_success} successful rollouts out of {num_rollouts}.')
         if save_episode:
             room_idx = config['room_idx']
-            save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{room_idx}{rollout_id}.mp4'))
+            save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'task_{task_name}_room_{room_idx}_rollout_{rollout_id}.mp4'))
+        result_file_name = 'eval_summary.txt'
+        with open(os.path.join('/home/quincy/dev/act/', result_file_name), 'a') as f:
+            f.write(f'#### Task {task_name}, Room {config["room_idx"]}, Rollout {rollout_id}\n')
+            for key in obs:
+                if 'success' in key:
+                    f.write(f'{key}: {int(obs[key].squeeze())}\n')
+            f.close()
 
     # success_rate = np.mean(np.array(highest_rewards) == env_max_reward)
     # avg_return = np.mean(episode_returns)
@@ -415,11 +447,12 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
     # save success rate to txt
     # result_file_name = 'result_' + ckpt_name.split('.')[0] + '.txt'
-    result_file_name = 'eval_summary.txt'
-    with open(os.path.join('/home/quincy/dev/act/', result_file_name), 'a') as f:
-        f.write(task_name + ', ' + str(config['room_idx']) + ': ' + str(num_success))
-        f.write('\n')
-        f.close()
+    # result_file_name = 'eval_summary.txt'
+    # with open(os.path.join('/home/quincy/dev/act/', result_file_name), 'a') as f:
+    #     f.write('#####' + task_name + ', ' + str(config['room_idx']))
+    #     f.write()
+    #     f.write('\n')
+    #     f.close()
 
     return 0, 0
 
@@ -456,11 +489,14 @@ def train_bc(train_dataloader, val_dataloader, config):
             # Update largest_epoch if the current epoch number is larger
             if epoch_number > last_epoch:
                 last_epoch = epoch_number
-    if last_epoch > -1:
-        ckpt_path = os.path.join(ckpt_dir, 'policy_last.ckpt')
-        loading_status = policy.load_state_dict(torch.load(ckpt_path))
-        print(f'last epoch : {last_epoch}, {num_epochs} left')
-        num_epochs = 10000 - last_epoch
+    # last_epoch -= 100 # last one is likely corrupted
+    last_epoch = 0
+    # if last_epoch > -1:
+    #     ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{last_epoch}_seed_0.ckpt')
+    #     print(f'Loading checkpoint from {ckpt_path}')
+    #     loading_status = policy.load_state_dict(torch.load(ckpt_path))
+    #     print(f'last epoch : {last_epoch}, {num_epochs} left')
+    #     num_epochs = 10000 - last_epoch
     
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
@@ -510,8 +546,8 @@ def train_bc(train_dataloader, val_dataloader, config):
             summary_string += f'{k}: {v.item():.3f} '
         print(summary_string)
 
-        if epoch % 100 == 0:
-            ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch}_seed_{seed}.ckpt')
+        if epoch % 1000 == 0:
+            ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch+last_epoch}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)
             plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
 
