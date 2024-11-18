@@ -263,7 +263,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     highest_rewards = []
     num_success = 0
     curr_rollout_success = False
-    read_action_from_file =True
+    read_action_from_file = False
     for rollout_id in range(num_rollouts):
         if read_action_from_file:
             with h5py.File('/home/quincy/dev/opentelevision/data/episode_0.hdf5', 'r') as action_file:
