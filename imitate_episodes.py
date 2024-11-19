@@ -34,40 +34,44 @@ def main(args):
     ckpt_dir = args['ckpt_dir']
     policy_class = args['policy_class']
     onscreen_render = args['onscreen_render']
-    task_name = args['task_name']
+    task_shorten_name = args['task_name']
+    task_name = f'Humanoid-{task_shorten_name}-v0'
     batch_size_train = args['batch_size']
     batch_size_val = args['batch_size']
     num_epochs = args['num_epochs']
+    num_episodes = 40
 
     # get task parameters
     is_sim = task_name[:4] == 'sim_'
     is_sim = True if task_name.startswith('Humanoid') else False
-    # if is_sim:
+    curr_file_path = os.path.abspath(__file__)
+    curr_dir_path = os.path.dirname(curr_file_path)
+    data_path = os.path.join(curr_dir_path, 'data')
+    ckpt_path = os.path.join(curr_dir_path, 'ckpt', task_shorten_name)
+    
     if True:
         if not is_eval:
             from constants import SIM_TASK_CONFIGS
-            # if task_name in SIM_TASK_CONFIGS:
-            #     task_config = SIM_TASK_CONFIGS[task_name]
-            # else:
-            f= h5py.File('/home/quincy/dev/act/data/episode_0.hdf5', 'r')
-            episode_len = f['observations/qpos'].shape[0]
+            with h5py.File(os.path.join(data_path, 'episode_0.hdf5'), 'r') as f:
+                episode_len = f['observations/qpos'].shape[0]
+                f.close()
             task_config = {
-                'dataset_dir': '/home/quincy/dev/act/data/',
-                'num_episodes': 40,
+                'dataset_dir': data_path,
+                'num_episodes': num_episodes,
                 'episode_len': episode_len,
                 'camera_names': ['main'],
             },
-            dataset_dir = '/home/quincy/dev/act/data/'
-            num_episodes = 40
+            dataset_dir = data_path
+            num_episodes = num_episodes
             episode_len = episode_len
             camera_names = ['main']
         else:
             episode_len = 450
-            num_episodes = 40
+            num_episodes = num_episodes
             camera_names = ['main']
             task_config = {
-                'dataset_dir': '/home/quincy/dev/act/data/',
-                'num_episodes': 40,
+                'dataset_dir': data_path,
+                'num_episodes': num_episodes,
                 'episode_len': episode_len,
                 'camera_names': ['main'],
             },
@@ -130,7 +134,7 @@ def main(args):
         # ckpt_names = ['policy_epoch_2899_seed_0.ckpt']
         results = []
         for ckpt_name in ckpt_names:
-            success_rate, avg_return = eval_bc(config, ckpt_name, save_episode=True)
+            success_rate, avg_return = eval_bc(config, curr_dir_path=curr_dir_path, save_episode=True)
             results.append([ckpt_name, success_rate, avg_return])
 
         for ckpt_name, success_rate, avg_return in results:
@@ -203,12 +207,14 @@ def eval_bc(config, ckpt_name, save_episode=True):
     policy_config = config['policy_config']
     camera_names = config['camera_names']
     max_timesteps = config['episode_len']
-    task_name = config['task_name']
+    task_shorten_name = config['task_name']
+    task_name = f'Humanoid-{task_shorten_name}-v0'
     temporal_agg = config['temporal_agg']
     onscreen_cam = 'main'
+    
+    ckpt_path = os.path.join(curr_dir_path, 'ckpt', task_name, 'policy_best.ckpt')
 
     # load policy and stats
-    ckpt_path = os.path.join(ckpt_dir, ckpt_name)
     policy = make_policy(policy_class, policy_config)
     loading_status = policy.load_state_dict(torch.load(ckpt_path))
     print(loading_status)
@@ -250,10 +256,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     right_ik_commands_world = torch.zeros(env.scene.num_envs, right_ik_controller.action_dim, device=env.robot.device)
     right_ik_commands_robot = torch.zeros(env.scene.num_envs, right_ik_controller.action_dim, device=env.robot.device)
 
-    query_frequency = policy_config['num_queries']
-    if temporal_agg:
-        query_frequency = 1
-        num_queries = policy_config['num_queries']
+    query_frequency = policy_config['num_queries image_data.permute(2, 0, 1)  # Reorder from ']
 
     max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
     max_timesteps = 450
@@ -266,7 +269,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     read_action_from_file = False
     for rollout_id in range(num_rollouts):
         if read_action_from_file:
-            with h5py.File('/home/quincy/dev/opentelevision/data/episode_0.hdf5', 'r') as action_file:
+            with h5py.File(os.path.join(curr_dir_path, 'data', task_shorten_name, 'episode_0.hdf5'), 'r') as action_file:
                 recorded_action = action_file['/action']
                 recorded_left_ee = action_file['/observations/left_ee_pose']
                 recorded_left_finger = torch.tensor(recorded_action, device=env.device)[:, left_hand_joint_ids]
@@ -292,7 +295,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
         if temporal_agg:
             all_time_actions = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
 
-        qpos_history = torch.zeros((1, max_timesteps, 50)).cuda()
+        qpos_history = torch.zeros((1, max_timesteps, state_dim)).cuda()
         image_list = [] # for visualization
         qpos_list = []
         target_qpos_list = []
@@ -428,7 +431,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
             room_idx = config['room_idx']
             save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'task_{task_name}_room_{room_idx}_rollout_{rollout_id}.mp4'))
         result_file_name = 'eval_summary.txt'
-        with open(os.path.join('/home/quincy/dev/act/', result_file_name), 'a') as f:
+        with open(os.path.join(curr_dir_path, result_file_name), 'a') as f:
             f.write(f'#### Task {task_name}, Room {config["room_idx"]}, Rollout {rollout_id}\n')
             for key in obs:
                 if 'success' in key:
@@ -459,6 +462,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
 def forward_pass(data, policy):
     image_data, qpos_data, action_data, is_pad = data
+    image_data = image_data.permute(0, 1, 4, 2, 3)
     image_data, qpos_data, action_data, is_pad = image_data.cuda(), qpos_data.cuda(), action_data.cuda(), is_pad.cuda()
     return policy(qpos_data, image_data, action_data, is_pad) # TODO remove None
 

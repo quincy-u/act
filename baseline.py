@@ -1,5 +1,6 @@
 import argparse
 import gc
+from pathlib import Path
 
 import numpy as np
 from googleapiclient.discovery import build
@@ -106,7 +107,8 @@ def pad_hdf5(source_hdf5, target_dir, file_name, total_length):
         right_ee_pose = source_hdf5['/observations/right_ee_pose'][()]
         left_finger_pos = source_hdf5['/action'][()][:, left_hand_joint_ids]
         right_finger_pos = source_hdf5['/action'][()][:, right_hand_joint_ids]
-        action = np.concatenate([left_ee_pose, right_ee_pose, left_finger_pos, right_finger_pos], axis=-1)
+        # action = np.concatenate([left_ee_pose, right_ee_pose, left_finger_pos, right_finger_pos], axis=-1)
+        action = np.concatenate([left_ee_pose, right_ee_pose], axis=-1)
 
         # Set attributes and create datasets in the new file
         output_file.attrs['sim'] = source_hdf5.attrs['sim']
@@ -140,39 +142,49 @@ def pad_hdf5(source_hdf5, target_dir, file_name, total_length):
         print('Saving to ', output_dataset_path)
         output_file.close()
 
-def main(parent_dir):
+def main():
+    curr_file_path = os.path.abspath(__file__)
+    curr_dir_path = os.path.dirname(curr_file_path)
+
     folder_link = 'https://drive.google.com/drive/folders/1I2QcdQqSNcgVDoDkO0AmPwfz3TkCIUhp'  # Replace with your Google Drive folder link
     folder_id = folder_link.split('/')[-1]  # Extract ID from the link
     service = authenticate_google_drive()
     tasks = list_files(service, folder_id)
     tasks.sort(key=lambda x: x['name'])
     for task in tqdm(tasks, desc='Tasks'):
-        if task['mimeType'] == 'application/vnd.google-apps.folder' and (not task['name'] in ['Pour-Balls']): 
+        if task['mimeType'] == 'application/vnd.google-apps.folder' and ( task['name'] in [ 'Pour-Balls']): 
             task_name_shorten = task['name']
             task_name = f'Humanoid-{task_name_shorten}-v0'
             print('='*100)
             print(f'Processing task: {task_name}')
-            for episode_idx in range(40):
-                file_name = f"episode_{episode_idx}.hdf5"
-                file = find_file(service, task['id'], file_name)
-                if not file:
-                    print(f"File {file_name} not found in {task_name_shorten}")
-                else:
-                    print(f"Downloading {file_name} from folder {task_name_shorten}")
-                    local_path = f'{parent_dir}/act/raw_data/{file_name}'
-                    download_file(service, file['id'], local_path)
-            pad_episodes_args = ['--dataset_dir', f'{parent_dir}/act/raw_data', '--target_dir', f'{parent_dir}/act/data/', '--num_episode', '40']
-            pad_episodes_script_path = f'{parent_dir}/act/pad_episodes.py'
-            result = subprocess.run(['python', pad_episodes_script_path] + pad_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if task['name'] != 'Close-Drawer':
+                for episode_idx in range(40):
+                    file_name = f"episode_{episode_idx}.hdf5"
+                    local_path = f'{curr_dir_path}/raw_data/{task_name_shorten}/{file_name}'
+                    if Path(local_path).exists():
+                        print(f"Episode {episode_idx} already exists in {task_name_shorten}")
+                    else:
+                        file = find_file(service, task['id'], file_name)
+                        if not file:
+                            print(f"File {file_name} not found in {task_name_shorten}")
+                        else:
+                            print(f"Downloading {file_name} from folder {task_name_shorten}")
+                            if not os.path.exists(f'{curr_dir_path}/raw_data/{task_name_shorten}/'):
+                                os.makedirs(f'{curr_dir_path}/raw_data/{task_name_shorten}/')
+                            download_file(service, file['id'], local_path)
+                        
+            preprocess_data_args = ['--dataset_dir', f'{curr_dir_path}/raw_data/{task_name_shorten}', '--target_dir', f'{curr_dir_path}/data/', '--num_episode', '40']
+            preprocess_data_script_path = f'{curr_dir_path}/preprocess_data.py'
+            result = subprocess.run(['python', preprocess_data_script_path] + preprocess_data_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             print("Output:", result.stdout)
             print("Errors:", result.stderr)
 
-            ckpt_dir = f'{parent_dir}/act/ckpt/{task_name_shorten}'
+            ckpt_dir = f'{curr_dir_path}/ckpt/{task_name_shorten}'
             if not os.path.exists(ckpt_dir):
                 os.makedirs(ckpt_dir)
                 print("Folder created:", ckpt_dir)
-            imitate_episodes_args = ['--task_name', task_name, '--policy_class', 'ACT', '--kl_weight' ,'10' ,'--chunk_size' ,'150' ,'--hidden_dim' ,'512', '--batch_size', '64' ,'--dim_feedforward', '3200' ,'--num_epochs', '10000',  '--lr' ,'5e-5' ,'--seed', '0' ,'--ckpt_dir' ,ckpt_dir]
-            imitate_episodes_script_path = f'{parent_dir}/act/imitate_episodes.py'
+            imitate_episodes_args = ['--task_name', task_name_shorten, '--policy_class', 'ACT', '--kl_weight' ,'10' ,'--chunk_size' ,'100' ,'--hidden_dim' ,'512', '--batch_size', '64' ,'--dim_feedforward', '3200' ,'--num_epochs', '20000',  '--lr' ,'3e-5' ,'--seed', '0' ,'--ckpt_dir' ,ckpt_dir]
+            imitate_episodes_script_path = f'{curr_dir_path}/imitate_episodes.py'
             result = subprocess.run(['python', imitate_episodes_script_path] + imitate_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             print("Output:", result.stdout)
             print("Errors:", result.stderr)
@@ -180,7 +192,5 @@ def main(parent_dir):
             gc.collect()
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--server', action='store_true')
     args = parser.parse_args()
-    parent_dir = '/data/quincyu' if args.server else '/home/quincy/dev'
-    main(parent_dir)
+    main()
