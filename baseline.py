@@ -152,26 +152,25 @@ def main():
     tasks = list_files(service, folder_id)
     tasks.sort(key=lambda x: x['name'])
     for task in tqdm(tasks, desc='Tasks'):
-        if task['mimeType'] == 'application/vnd.google-apps.folder' and ( task['name'] in [ 'Pour-Balls']): 
+        if task['mimeType'] == 'application/vnd.google-apps.folder' and ( task['name'] not in [ 'Pour-Balls', 'Orient-Pour-Balls']): 
             task_name_shorten = task['name']
             task_name = f'Humanoid-{task_name_shorten}-v0'
             print('='*100)
             print(f'Processing task: {task_name}')
-            if task['name'] != 'Close-Drawer':
-                for episode_idx in range(40):
-                    file_name = f"episode_{episode_idx}.hdf5"
-                    local_path = f'{curr_dir_path}/raw_data/{task_name_shorten}/{file_name}'
-                    if Path(local_path).exists():
-                        print(f"Episode {episode_idx} already exists in {task_name_shorten}")
+            for episode_idx in range(40):
+                file_name = f"episode_{episode_idx}.hdf5"
+                local_path = f'{curr_dir_path}/raw_data/{task_name_shorten}/{file_name}'
+                if Path(local_path).exists():
+                    print(f"Episode {episode_idx} already exists in {task_name_shorten}")
+                else:
+                    file = find_file(service, task['id'], file_name)
+                    if not file:
+                        print(f"File {file_name} not found in {task_name_shorten}")
                     else:
-                        file = find_file(service, task['id'], file_name)
-                        if not file:
-                            print(f"File {file_name} not found in {task_name_shorten}")
-                        else:
-                            print(f"Downloading {file_name} from folder {task_name_shorten}")
-                            if not os.path.exists(f'{curr_dir_path}/raw_data/{task_name_shorten}/'):
-                                os.makedirs(f'{curr_dir_path}/raw_data/{task_name_shorten}/')
-                            download_file(service, file['id'], local_path)
+                        print(f"Downloading {file_name} from folder {task_name_shorten}")
+                        if not os.path.exists(f'{curr_dir_path}/raw_data/{task_name_shorten}/'):
+                            os.makedirs(f'{curr_dir_path}/raw_data/{task_name_shorten}/')
+                        download_file(service, file['id'], local_path)
                         
             preprocess_data_args = ['--dataset_dir', f'{curr_dir_path}/raw_data/{task_name_shorten}', '--target_dir', f'{curr_dir_path}/data/', '--num_episode', '40']
             preprocess_data_script_path = f'{curr_dir_path}/preprocess_data.py'

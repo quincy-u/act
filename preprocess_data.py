@@ -63,21 +63,22 @@ def load_hdf5(dataset_dir, dataset_name):
 def pad_hdf5(dataset_dir, target_dir, dataset_name, total_length):
     input_dataset_path = os.path.join(dataset_dir, dataset_name + '.hdf5')
     output_dataset_path = os.path.join(target_dir, dataset_name + '.hdf5')
+    clip_length = 10
 
     with h5py.File(input_dataset_path, 'r') as input_file, h5py.File(output_dataset_path, 'w') as output_file:
-        images = input_file['/observations/images/main'][()]
+        images = input_file['/observations/images/main'][()][clip_length:-clip_length]
         images = resize_images_bilinear(images, 384, 384)
         state_ids = left_arm_joint_ids + right_arm_joint_ids + left_hand_joint_ids + right_hand_joint_ids
-        qpos = input_file['/observations/qpos'][()][:, state_ids]
-        qvel = input_file['/observations/qvel'][()][:, state_ids]
+        qpos = input_file['/observations/qpos'][()][clip_length:-clip_length, state_ids]
+        qvel = input_file['/observations/qvel'][()][clip_length:-clip_length, state_ids]
         if '/observations/left_ee_pose' not in input_file:
-            left_ee_pose = input_file['/observations/left_curr_ee_pose'][()]
-            right_ee_pose = input_file['/observations/right_curr_ee_pose'][()]
+            left_ee_pose = input_file['/observations/left_curr_ee_pose'][()][clip_length:-clip_length]
+            right_ee_pose = input_file['/observations/right_curr_ee_pose'][()][clip_length:-clip_length]
         else:
-            left_ee_pose = input_file['/observations/left_ee_pose'][()]
-            right_ee_pose = input_file['/observations/right_ee_pose'][()]
-        left_finger_pos = input_file['/action'][()][:, left_hand_joint_ids]
-        right_finger_pos = input_file['/action'][()][:, right_hand_joint_ids]
+            left_ee_pose = input_file['/observations/left_ee_pose'][()][clip_length:-clip_length]
+            right_ee_pose = input_file['/observations/right_ee_pose'][()][clip_length:-clip_length]
+        left_finger_pos = input_file['/action'][()][clip_length:-clip_length, left_hand_joint_ids]
+        right_finger_pos = input_file['/action'][()][clip_length:-clip_length, right_hand_joint_ids]
         action = np.concatenate([left_ee_pose, right_ee_pose, left_finger_pos, right_finger_pos], axis=-1)
         # Set attributes and create datasets in the new file
         output_file.attrs['sim'] = input_file.attrs['sim']

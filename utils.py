@@ -126,7 +126,8 @@ def get_norm_stats(dataset_dir, num_episodes):
             action = root['/action'][()]
         all_qpos_data.append(torch.from_numpy(qpos))
         all_action_data.append(torch.from_numpy(action))
-        all_episode_len.append(len(qpos))
+        print(qpos.shape)
+        all_episode_len.append(qpos.shape[0])
     all_qpos_data = torch.cat(all_qpos_data)
     all_action_data = torch.cat(all_action_data)
     all_action_data = all_action_data
@@ -149,7 +150,9 @@ def get_norm_stats(dataset_dir, num_episodes):
 
 def BatchSampler(batch_size, episode_len_l, sample_weights=None):
     sample_probs = np.array(sample_weights) / np.sum(sample_weights) if sample_weights is not None else None
+    print(episode_len_l)
     sum_dataset_len_l = np.cumsum([0] + [np.sum(episode_len) for episode_len in episode_len_l])
+    print(sum_dataset_len_l)
     while True:
         batch = []
         for _ in range(batch_size):
@@ -166,6 +169,7 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
     shuffled_indices = np.random.permutation(num_episodes)
     train_indices = shuffled_indices[:int(train_ratio * num_episodes)]
     val_indices = shuffled_indices[int(train_ratio * num_episodes):]
+    print(val_indices)
 
     # obtain normalization stats for qpos and action
     norm_stats, all_episode_len = get_norm_stats(dataset_dir, num_episodes)

@@ -17,7 +17,9 @@ def make_sim_env(task, room_idx):
     env_cfg.use_ik = False
     env_cfg.room_idx = room_idx
     env_cfg.spawn_background = True
-    env_cfg.episode_length_s = 15
+    env_cfg.episode_length_s = 16
+    env_cfg.seed = 100
+    env_cfg.randomize = True
     # create environment
     env = gym.make(task, cfg=env_cfg)
 

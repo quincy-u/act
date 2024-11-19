@@ -1,3 +1,4 @@
+from itertools import repeat
 import re
 import torch
 import numpy as np
@@ -22,6 +23,7 @@ from visualize_episodes import save_videos
 from sim_env import BOX_POSE
 
 import IPython
+import wandb
 e = IPython.embed
 
 left_hand_joint_ids = [26, 36, 27, 37, 28, 38, 29, 39, 30, 40, 46, 48]
@@ -128,6 +130,10 @@ def main(args):
         'room_idx': args['room_idx']
     }
 
+    mode = "online"
+    wandb.init(project="act-humanoid-isaaclab", name=task_shorten_name, group=task_name, entity="quincyu", mode=mode, dir="../data/logs")
+    wandb.config.update(config)
+
     if is_eval:
         ckpt_names = [f'policy_best.ckpt']
         # ckpt_names = [f'policy_last.ckpt']
@@ -158,6 +164,7 @@ def main(args):
     ckpt_path = os.path.join(ckpt_dir, f'policy_best.ckpt')
     torch.save(best_state_dict, ckpt_path)
     print(f'Best ckpt, val loss {min_val_loss:.6f} @ epoch{best_epoch}')
+    wandb.finish()
 
 
 def make_policy(policy_class, policy_config):
@@ -466,7 +473,14 @@ def forward_pass(data, policy):
     image_data, qpos_data, action_data, is_pad = image_data.cuda(), qpos_data.cuda(), action_data.cuda(), is_pad.cuda()
     return policy(qpos_data, image_data, action_data, is_pad) # TODO remove None
 
-
+def repeater(data_loader):
+    epoch = 0
+    for loader in repeat(data_loader):
+        for data in loader:
+            yield data
+        print(f'Epoch {epoch} done')
+        epoch += 1
+        
 def train_bc(train_dataloader, val_dataloader, config):
     num_epochs = config['num_epochs']
     ckpt_dir = config['ckpt_dir']
@@ -504,7 +518,8 @@ def train_bc(train_dataloader, val_dataloader, config):
     
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
-
+    train_dataloader = repeater(train_dataloader)
+    
     train_history = []
     validation_history = []
     min_val_loss = np.inf
@@ -512,37 +527,45 @@ def train_bc(train_dataloader, val_dataloader, config):
     for epoch in tqdm(range(num_epochs)):
         print(f'\nEpoch {epoch}')
         # validation
-        with torch.inference_mode():
-            policy.eval()
-            epoch_dicts = []
-            for batch_idx, data in enumerate(val_dataloader):
-                forward_dict = forward_pass(data, policy)
-                epoch_dicts.append(forward_dict)
-            epoch_summary = compute_dict_mean(epoch_dicts)
-            validation_history.append(epoch_summary)
+        if epoch % 500 == 0:
+            with torch.inference_mode():
+                policy.eval()
+                epoch_dicts = []
+                for batch_idx, data in enumerate(val_dataloader):
+                    forward_dict = forward_pass(data, policy)
+                    epoch_dicts.append(forward_dict)
+                    if batch_idx > 20:
+                        break
+                print('batch_done')
+                validation_summary = compute_dict_mean(epoch_dicts)
+                validation_history.append(validation_summary)
 
-            epoch_val_loss = epoch_summary['loss']
-            if epoch_val_loss < min_val_loss:
-                min_val_loss = epoch_val_loss
-                best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
+                epoch_val_loss = validation_summary['loss']
+                if epoch_val_loss < min_val_loss:
+                    min_val_loss = epoch_val_loss
+                    best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
         print(f'Val loss:   {epoch_val_loss:.5f}')
         summary_string = ''
-        for k, v in epoch_summary.items():
-            summary_string += f'{k}: {v.item():.3f} '
+        for k in list(validation_summary.keys()):
+            validation_summary[f'val/{k}'] = validation_summary.pop(k)  
+        wandb.log(validation_summary, step=epoch)
         print(summary_string)
 
         # training
         policy.train()
         optimizer.zero_grad()
-        for batch_idx, data in enumerate(train_dataloader):
-            forward_dict = forward_pass(data, policy)
-            # backward
-            loss = forward_dict['loss']
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-            train_history.append(detach_dict(forward_dict))
-        epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
+        data = next(train_dataloader)
+        forward_dict = forward_pass(data, policy)
+        # backward
+        loss = forward_dict['loss']
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        
+        # train_history.append(detach_dict(forward_dict))
+        # epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
+        
+        epoch_summary = detach_dict(forward_dict)       
         epoch_train_loss = epoch_summary['loss']
         print(f'Train loss: {epoch_train_loss:.5f}')
         summary_string = ''
@@ -550,10 +573,11 @@ def train_bc(train_dataloader, val_dataloader, config):
             summary_string += f'{k}: {v.item():.3f} '
         print(summary_string)
 
+        wandb.log(epoch_summary, step=epoch)
         if epoch % 1000 == 0:
             ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch+last_epoch}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)
-            plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
+            # plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
 
     ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
     torch.save(policy.state_dict(), ckpt_path)
