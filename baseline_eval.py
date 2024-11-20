@@ -1,5 +1,6 @@
 import gc
 
+from click import File
 import numpy as np
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -36,23 +37,27 @@ def main():
     tasks = list_subfolders(ckpt_home_dir)
     tasks.sort()
     for task_name_shorten in tqdm(tasks):
-        task_name = f'Humanoid-{task_name_shorten}-v0'
-        for room_id in range(3):
-            print('='*100)
-            room_idx = room_id + 1
-            print(f'Processing task: {task_name}, room: {room_idx}')
+        if task_name_shorten  in ['Stack-Single-Cube', 'Unload-Cans' ]:
+            task_name = f'Humanoid-{task_name_shorten}-v0'
+            with open('/home/quincy/dev/act/eval_summary.txt', 'a') as f:
+                f.write(f'\n===============================================================================================\n')
+                f.close()
+            for room_id in range(3):
+                print('='*100)
+                room_idx = room_id +1
+                print(f'Processing task: {task_name}, room: {room_idx}')
 
-            ckpt_dir = f'/home/quincy/dev/act/ckpt/{task_name_shorten}'
-            if not os.path.exists(ckpt_dir):
-                raise ValueError(f"Checkpoint directory {ckpt_dir} does not exist.")
-            imitate_episodes_args = ['--task_name', task_name, '--policy_class', 'ACT', '--kl_weight' ,'10' ,'--chunk_size' ,'100' ,'--hidden_dim' ,'512', 
-                                     '--batch_size', '64' ,'--dim_feedforward', '3200' ,'--num_epochs', '2000',  '--lr' ,'5e-5' ,'--seed', '0' ,'--ckpt_dir' ,
-                                     ckpt_dir, '--room_idx', str(room_idx), '--eval']
-            imitate_episodes_script_path = '/home/quincy/dev/act/imitate_episodes.py'
-            result = subprocess.run(['python', imitate_episodes_script_path] + imitate_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            print("Output:", result.stdout)
-            print("Errors:", result.stderr)
-                    
-            gc.collect()
+                ckpt_dir = f'/home/quincy/dev/act/ckpt/{task_name_shorten}'
+                if not os.path.exists(ckpt_dir):
+                    raise ValueError(f"Checkpoint directory {ckpt_dir} does not exist.")
+                imitate_episodes_args = ['--task_name', task_name, '--policy_class', 'ACT', '--kl_weight' ,'10' ,'--chunk_size' ,'150' ,'--hidden_dim' ,'512', 
+                                        '--batch_size', '64' ,'--dim_feedforward', '3200' ,'--num_epochs', '2000',  '--lr' ,'5e-5' ,'--seed', '0' ,'--ckpt_dir' ,
+                                        ckpt_dir, '--room_idx', str(room_idx), '--eval']
+                imitate_episodes_script_path = '/home/quincy/dev/act/imitate_episodes.py'
+                result = subprocess.run(['python', imitate_episodes_script_path] + imitate_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                print("Output:", result.stdout)
+                print("Errors:", result.stderr)
+                        
+                gc.collect()
 if __name__ == '__main__':
     main()

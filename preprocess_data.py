@@ -18,6 +18,11 @@ right_hand_joint_ids = [31, 41, 32, 42, 33, 43, 34, 44, 35, 45, 47, 49]
 left_arm_joint_ids = [4, 8, 12, 16, 20, 22, 24]
 right_arm_joint_ids = [5, 9, 13, 17, 21, 23, 25]
 
+clip_len_map = {
+    'Pour-Balls': 50,
+    'Close-Drawer': 10,
+}
+
 
 def resize_images_bilinear(batch_images, target_width, target_height):
     # Extract the trajectory length and original dimensions
@@ -63,7 +68,7 @@ def load_hdf5(dataset_dir, dataset_name):
 def pad_hdf5(dataset_dir, target_dir, dataset_name, total_length):
     input_dataset_path = os.path.join(dataset_dir, dataset_name + '.hdf5')
     output_dataset_path = os.path.join(target_dir, dataset_name + '.hdf5')
-    clip_length = 10
+    clip_length = 50
 
     with h5py.File(input_dataset_path, 'r') as input_file, h5py.File(output_dataset_path, 'w') as output_file:
         images = input_file['/observations/images/main'][()][clip_length:-clip_length]

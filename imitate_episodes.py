@@ -28,6 +28,8 @@ e = IPython.embed
 
 left_hand_joint_ids = [26, 36, 27, 37, 28, 38, 29, 39, 30, 40, 46, 48]
 right_hand_joint_ids = [31, 41, 32, 42, 33, 43, 34, 44, 35, 45, 47, 49]
+left_arm_joint_ids = [4, 8, 12, 16, 20, 22, 24]
+right_arm_joint_ids = [5, 9, 13, 17, 21, 23, 25]
 
 def main(args):
     set_seed(1)
@@ -123,6 +125,7 @@ def main(args):
         'onscreen_render': onscreen_render,
         'policy_config': policy_config,
         'task_name': task_name,
+        'task_shorten_name': task_shorten_name,
         'seed': args['seed'],
         'temporal_agg': args['temporal_agg'],
         'camera_names': camera_names,
@@ -130,9 +133,10 @@ def main(args):
         'room_idx': args['room_idx']
     }
 
-    mode = "online"
-    wandb.init(project="act-humanoid-isaaclab", name=task_shorten_name, group=task_name, entity="quincyu", mode=mode, dir="../data/logs")
-    wandb.config.update(config)
+    if not is_eval:
+        mode = "online"
+        wandb.init(project="act-humanoid-isaaclab", name=task_shorten_name, group=task_name, entity="quincyu", mode=mode, dir="../data/logs")
+        wandb.config.update(config)
 
     if is_eval:
         ckpt_names = [f'policy_best.ckpt']
@@ -157,7 +161,7 @@ def main(args):
     with open(stats_path, 'wb') as f:
         pickle.dump(stats, f)
 
-    best_ckpt_info = train_bc(train_dataloader, val_dataloader, config)
+    best_ckpt_info = train_bc(train_dataloader, val_dataloader, config, curr_dir_path=curr_dir_path)
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
 
     # save best checkpoint
@@ -204,7 +208,7 @@ def get_image(obs):
     return curr_image
 
 
-def eval_bc(config, ckpt_name, save_episode=True):
+def eval_bc(config, curr_dir_path, save_episode=True):
     set_seed(1000)
     ckpt_dir = config['ckpt_dir']
     state_dim = config['state_dim']
@@ -214,12 +218,12 @@ def eval_bc(config, ckpt_name, save_episode=True):
     policy_config = config['policy_config']
     camera_names = config['camera_names']
     max_timesteps = config['episode_len']
-    task_shorten_name = config['task_name']
+    task_shorten_name = config['task_shorten_name']
     task_name = f'Humanoid-{task_shorten_name}-v0'
     temporal_agg = config['temporal_agg']
     onscreen_cam = 'main'
     
-    ckpt_path = os.path.join(curr_dir_path, 'ckpt', task_name, 'policy_best.ckpt')
+    ckpt_path = os.path.join(curr_dir_path, 'ckpt', task_shorten_name, 'policy_last.ckpt')
 
     # load policy and stats
     policy = make_policy(policy_class, policy_config)
@@ -263,7 +267,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     right_ik_commands_world = torch.zeros(env.scene.num_envs, right_ik_controller.action_dim, device=env.robot.device)
     right_ik_commands_robot = torch.zeros(env.scene.num_envs, right_ik_controller.action_dim, device=env.robot.device)
 
-    query_frequency = policy_config['num_queries image_data.permute(2, 0, 1)  # Reorder from ']
+    query_frequency = policy_config['num_queries']
 
     max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
     max_timesteps = 450
@@ -272,6 +276,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     episode_returns = []
     highest_rewards = []
     num_success = 0
+    state_ids = left_arm_joint_ids + right_arm_joint_ids + left_hand_joint_ids + right_hand_joint_ids
     curr_rollout_success = False
     read_action_from_file = False
     for rollout_id in range(num_rollouts):
@@ -328,7 +333,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 # else:
                 #     image_list.append({'main': obs['image']})
                 image_list.append({'main': obs['fixed_rgb'].squeeze().cpu().numpy()})
-                qpos_numpy = np.array(obs['qpos'].squeeze().cpu().numpy())
+                qpos_numpy = np.array(obs['qpos'][:, state_ids].squeeze().cpu().numpy())
                 qpos = pre_process(qpos_numpy)
                 qpos = torch.from_numpy(qpos_numpy).float().cuda().unsqueeze(0)
                 qpos_history[:, t] = qpos
@@ -406,9 +411,6 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
                 ### step the environment
                 obs, _, _, reset, _ = env.step(target_qpos)
-                if not read_action_from_file:
-                    recorded_left_ee[t] = obs['left_target_ee_pose'].squeeze().cpu().numpy()
-                    recorded_right_ee[t] = obs['right_target_ee_pose'].squeeze().cpu().numpy()
                 if obs['success'] and not curr_rollout_success:
                     num_success += 1
                     curr_rollout_success = True
@@ -471,7 +473,12 @@ def forward_pass(data, policy):
     image_data, qpos_data, action_data, is_pad = data
     image_data = image_data.permute(0, 1, 4, 2, 3)
     image_data, qpos_data, action_data, is_pad = image_data.cuda(), qpos_data.cuda(), action_data.cuda(), is_pad.cuda()
-    return policy(qpos_data, image_data, action_data, is_pad) # TODO remove None
+    return policy(
+        qpos=qpos_data, 
+        image=image_data,
+        actions=action_data,
+        is_pad=is_pad
+    ) # TODO remove None
 
 def repeater(data_loader):
     epoch = 0
@@ -481,12 +488,13 @@ def repeater(data_loader):
         print(f'Epoch {epoch} done')
         epoch += 1
         
-def train_bc(train_dataloader, val_dataloader, config):
+def train_bc(train_dataloader, val_dataloader, config, curr_dir_path):
     num_epochs = config['num_epochs']
     ckpt_dir = config['ckpt_dir']
     seed = config['seed']
     policy_class = config['policy_class']
     policy_config = config['policy_config']
+    task_shorten_name = config['task_shorten_name']
 
     set_seed(seed)
 
@@ -496,7 +504,7 @@ def train_bc(train_dataloader, val_dataloader, config):
     pattern = re.compile(r"policy_epoch_(\d+)_seed_\d+\.ckpt")
 
     # Initialize variable to store the largest epoch number
-    last_epoch = -1
+    last_epoch = 0 
 
     # Iterate over files in the directory
     for filename in os.listdir(ckpt_dir):
@@ -507,14 +515,12 @@ def train_bc(train_dataloader, val_dataloader, config):
             # Update largest_epoch if the current epoch number is larger
             if epoch_number > last_epoch:
                 last_epoch = epoch_number
-    # last_epoch -= 100 # last one is likely corrupted
-    last_epoch = 0
-    # if last_epoch > -1:
-    #     ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{last_epoch}_seed_0.ckpt')
-    #     print(f'Loading checkpoint from {ckpt_path}')
-    #     loading_status = policy.load_state_dict(torch.load(ckpt_path))
-    #     print(f'last epoch : {last_epoch}, {num_epochs} left')
-    #     num_epochs = 10000 - last_epoch
+    remaining_epochs = num_epochs - last_epoch
+    starting_epoch = last_epoch
+
+    if last_epoch > 0:
+        ckpt_path = os.path.join(curr_dir_path, 'ckpt', task_shorten_name, f'policy_epoch_{last_epoch}_seed_0.ckpt')
+        loading_status = policy.load_state_dict(torch.load(ckpt_path))
     
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
@@ -524,8 +530,9 @@ def train_bc(train_dataloader, val_dataloader, config):
     validation_history = []
     min_val_loss = np.inf
     best_ckpt_info = None
-    for epoch in tqdm(range(num_epochs)):
-        print(f'\nEpoch {epoch}')
+    for epoch in tqdm(range(remaining_epochs)):
+        epoch_idx = epoch + starting_epoch
+        print(f'\nEpoch {epoch_idx}')
         # validation
         if epoch % 500 == 0:
             with torch.inference_mode():
@@ -543,12 +550,12 @@ def train_bc(train_dataloader, val_dataloader, config):
                 epoch_val_loss = validation_summary['loss']
                 if epoch_val_loss < min_val_loss:
                     min_val_loss = epoch_val_loss
-                    best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
+                    best_ckpt_info = (epoch_idx, min_val_loss, deepcopy(policy.state_dict()))
         print(f'Val loss:   {epoch_val_loss:.5f}')
         summary_string = ''
         for k in list(validation_summary.keys()):
             validation_summary[f'val/{k}'] = validation_summary.pop(k)  
-        wandb.log(validation_summary, step=epoch)
+        wandb.log(validation_summary, step=epoch_idx)
         print(summary_string)
 
         # training
@@ -573,9 +580,9 @@ def train_bc(train_dataloader, val_dataloader, config):
             summary_string += f'{k}: {v.item():.3f} '
         print(summary_string)
 
-        wandb.log(epoch_summary, step=epoch)
-        if epoch % 1000 == 0:
-            ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch+last_epoch}_seed_{seed}.ckpt')
+        wandb.log(epoch_summary, step=epoch_idx)
+        if epoch % 1000 == 0 and epoch > 0:
+            ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch_idx}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)
             # plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
 

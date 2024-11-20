@@ -10,8 +10,9 @@ from constants import DT
 import IPython
 e = IPython.embed
 
-JOINT_NAMES = ["waist", "shoulder", "elbow", "forearm_roll", "wrist_angle", "wrist_rotate"]
-STATE_NAMES = JOINT_NAMES + ["gripper"]
+# JOINT_NAMES = ["waist", "shoulder", "elbow", "forearm_roll", "wrist_angle", "wrist_rotate"]
+# STATE_NAMES = JOINT_NAMES + ["gripper"]
+STATE_NAMES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
 
 def load_hdf5(dataset_dir, dataset_name):
     dataset_path = os.path.join(dataset_dir, dataset_name + '.hdf5')
@@ -26,7 +27,8 @@ def load_hdf5(dataset_dir, dataset_name):
         action = root['/action'][()]
         image_dict = dict()
         for cam_name in root[f'/observations/images/'].keys():
-            image_dict[cam_name] = root[f'/observations/images/{cam_name}'][()]
+            if cam_name == 'main':
+                image_dict[cam_name] = root[f'/observations/images/{cam_name}'][()]
 
     return qpos, qvel, action, image_dict
 
@@ -37,7 +39,7 @@ def main(args):
 
     qpos, qvel, action, image_dict = load_hdf5(dataset_dir, dataset_name)
     save_videos(image_dict, DT, video_path=os.path.join(dataset_dir, dataset_name + '_video.mp4'))
-    visualize_joints(qpos, action, plot_path=os.path.join(dataset_dir, dataset_name + '_qpos.png'))
+    # visualize_joints(qpos, action, plot_path=os.path.join(dataset_dir, dataset_name + '_qpos.png'))
     # visualize_timestamp(t_list, dataset_path) # TODO addn timestamp back
 
 
@@ -90,7 +92,7 @@ def visualize_joints(qpos_list, command_list, plot_path=None, ylim=None, label_o
     fig, axs = plt.subplots(num_figs, 1, figsize=(w, h * num_figs))
 
     # plot joint state
-    all_names = [name + '_left' for name in STATE_NAMES] + [name + '_right' for name in STATE_NAMES]
+    all_names = [name + '_right' for name in STATE_NAMES]
     for dim_idx in range(num_dim):
         ax = axs[dim_idx]
         ax.plot(qpos[:, dim_idx], label=label1)
