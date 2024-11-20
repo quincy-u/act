@@ -149,3 +149,4 @@ dmypy.json
 token.pickle
 eval_summary.txt
 credentials.json
+*_remote_module_non_scriptable.py
