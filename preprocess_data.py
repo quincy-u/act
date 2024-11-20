@@ -21,6 +21,19 @@ right_arm_joint_ids = [5, 9, 13, 17, 21, 23, 25]
 clip_len_map = {
     'Pour-Balls': 50,
     'Close-Drawer': 10,
+    'Flip-Mug': 30,
+    'Insert-And-Unload-Cans':50,
+    'Insert-Cans': 40,
+    'Open-Drawer': 30,
+    'Orient-Pour-Balls': 30,
+    'Press-Gamepad-Red': 20,
+    'Press-Gamepad-Blue': 20,
+    'Press-Gamepad-Blue-Red': 20,
+    'Push-Box': 20,
+    'Sort-Cans': 30,
+    'Stack-Single-Cube': 10,  
+    'Stack-Single-Cube-From-Drawer': 15,
+    'Unload-Cans': 50,
 }
 
 
@@ -68,7 +81,10 @@ def load_hdf5(dataset_dir, dataset_name):
 def pad_hdf5(dataset_dir, target_dir, dataset_name, total_length):
     input_dataset_path = os.path.join(dataset_dir, dataset_name + '.hdf5')
     output_dataset_path = os.path.join(target_dir, dataset_name + '.hdf5')
-    clip_length = 50
+    task_name = dataset_dir.split('/')[-1]
+    if len(task_name) == 0:
+        task_name = dataset_dir.split('/')[-2]
+    clip_length = clip_len_map[task_name] 
 
     with h5py.File(input_dataset_path, 'r') as input_file, h5py.File(output_dataset_path, 'w') as output_file:
         images = input_file['/observations/images/main'][()][clip_length:-clip_length]

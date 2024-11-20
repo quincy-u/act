@@ -142,6 +142,11 @@ def pad_hdf5(source_hdf5, target_dir, file_name, total_length):
         print('Saving to ', output_dataset_path)
         output_file.close()
 
+def run_script(script_path, args):
+    with subprocess.Popen(['python', script_path] + args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as process:
+        for line in process.stdout:
+            print(line, end='')
+
 def main():
     curr_file_path = os.path.abspath(__file__)
     curr_dir_path = os.path.dirname(curr_file_path)
@@ -150,7 +155,7 @@ def main():
     folder_id = folder_link.split('/')[-1]  # Extract ID from the link
     service = authenticate_google_drive()
     tasks = list_files(service, folder_id)
-    tasks.sort(key=lambda x: x['name'])
+    tasks.sort(reverse=True, key=lambda x: x['name'])
     for task in tqdm(tasks, desc='Tasks'):
         if task['mimeType'] == 'application/vnd.google-apps.folder' and ( task['name'] not in [ 'Pour-Balls', 'Orient-Pour-Balls']): 
             task_name_shorten = task['name']
@@ -174,9 +179,7 @@ def main():
                         
             preprocess_data_args = ['--dataset_dir', f'{curr_dir_path}/raw_data/{task_name_shorten}', '--target_dir', f'{curr_dir_path}/data/', '--num_episode', '40']
             preprocess_data_script_path = f'{curr_dir_path}/preprocess_data.py'
-            result = subprocess.run(['python', preprocess_data_script_path] + preprocess_data_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            print("Output:", result.stdout)
-            print("Errors:", result.stderr)
+            run_script(preprocess_data_script_path, preprocess_data_args)
 
             ckpt_dir = f'{curr_dir_path}/ckpt/{task_name_shorten}'
             if not os.path.exists(ckpt_dir):
@@ -184,9 +187,7 @@ def main():
                 print("Folder created:", ckpt_dir)
             imitate_episodes_args = ['--task_name', task_name_shorten, '--policy_class', 'ACT', '--kl_weight' ,'10' ,'--chunk_size' ,'200' ,'--hidden_dim' ,'512', '--batch_size', '64' ,'--dim_feedforward', '3200' ,'--num_epochs', '35000',  '--lr' ,'5e-5' ,'--seed', '0' ,'--ckpt_dir' ,ckpt_dir]
             imitate_episodes_script_path = f'{curr_dir_path}/imitate_episodes.py'
-            result = subprocess.run(['python', imitate_episodes_script_path] + imitate_episodes_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            print("Output:", result.stdout)
-            print("Errors:", result.stderr)
+            run_script(imitate_episodes_script_path, imitate_episodes_args)
                     
             gc.collect()
 if __name__ == '__main__':
