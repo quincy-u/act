@@ -538,26 +538,26 @@ def train_bc(train_dataloader, val_dataloader, config, curr_dir_path):
         if epoch % 500 == 0:
             with torch.inference_mode():
                 policy.eval()
-                epoch_dicts = []
+                validation_dicts = []
                 for batch_idx, data in enumerate(val_dataloader):
                     forward_dict = forward_pass(data, policy)
-                    epoch_dicts.append(forward_dict)
+                    validation_dicts.append(forward_dict)
                     if batch_idx > 20:
                         break
                 print('batch_done')
-                validation_summary = compute_dict_mean(epoch_dicts)
-                validation_history.append(validation_summary)
+                validation_summary = compute_dict_mean(validation_dicts)
+                # validation_history.append(validation_summary)
 
                 epoch_val_loss = validation_summary['loss']
                 if epoch_val_loss < min_val_loss:
                     min_val_loss = epoch_val_loss
                     best_ckpt_info = (epoch_idx, min_val_loss, deepcopy(policy.state_dict()))
-        print(f'Val loss:   {epoch_val_loss:.5f}')
-        summary_string = ''
-        for k in list(validation_summary.keys()):
-            validation_summary[f'val/{k}'] = validation_summary.pop(k)  
-        wandb.log(validation_summary, step=epoch_idx)
-        print(summary_string)
+            print(f'Val loss:   {epoch_val_loss:.5f}')
+            summary_string = ''
+            for k in list(validation_summary.keys()):
+                validation_summary[f'val/{k}'] = validation_summary.pop(k)  
+            wandb.log(validation_summary, step=epoch_idx)
+            print(summary_string)
 
         # training
         policy.train()

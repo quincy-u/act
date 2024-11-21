@@ -144,11 +144,13 @@ def main(args):
     max_episode_len = 0
     for episode_idx in range(num_episode):
         dataset_name = f'episode_{episode_idx}'
+        print('Reading episode:', dataset_name)
         qpos, qvel, action, image_dict, episode_len = load_hdf5(dataset_dir, dataset_name)
         max_episode_len = max(episode_len, max_episode_len)
     print(f'max episode len: {max_episode_len}')
     for episode_idx in range(num_episode):
         dataset_name = f'episode_{episode_idx}'
+        print('Processing episode:', dataset_name)
         pad_hdf5(dataset_dir, target_dir, dataset_name, max_episode_len)
 
 
