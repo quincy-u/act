@@ -223,7 +223,8 @@ def eval_bc(config, curr_dir_path, save_episode=True):
     temporal_agg = config['temporal_agg']
     onscreen_cam = 'main'
     
-    ckpt_path = os.path.join(curr_dir_path, 'ckpt', task_shorten_name, 'policy_last.ckpt')
+    # ckpt_path = os.path.join(curr_dir_path, 'ckpt', task_shorten_name, 'policy_last.ckpt')
+    ckpt_path = os.path.join(curr_dir_path, 'ckpt', task_shorten_name, 'policy_epoch_28000_seed_0.ckpt')
 
     # load policy and stats
     policy = make_policy(policy_class, policy_config)
@@ -272,7 +273,7 @@ def eval_bc(config, curr_dir_path, save_episode=True):
     max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
     max_timesteps = 450
 
-    num_rollouts = 4
+    num_rollouts = 5
     episode_returns = []
     highest_rewards = []
     num_success = 0
@@ -590,7 +591,7 @@ def train_bc(train_dataloader, val_dataloader, config, curr_dir_path):
     torch.save(policy.state_dict(), ckpt_path)
 
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
-    ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{best_epoch}_seed_{seed}.ckpt')
+    ckpt_path = os.path.join(ckpt_dir, f'policy_best.ckpt')
     torch.save(best_state_dict, ckpt_path)
     print(f'Training finished:\nSeed {seed}, val loss {min_val_loss:.6f} at epoch {best_epoch}')
 
