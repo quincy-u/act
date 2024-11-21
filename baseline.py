@@ -157,7 +157,7 @@ def main():
     tasks = list_files(service, folder_id)
     tasks.sort(reverse=True, key=lambda x: x['name'])
     for task in tqdm(tasks, desc='Tasks'):
-        if task['mimeType'] == 'application/vnd.google-apps.folder' and ( task['name'] not in [ 'Pour-Balls', 'Orient-Pour-Balls']): 
+        if task['mimeType'] == 'application/vnd.google-apps.folder' and ( task['name'] not in [ 'Unload-Cans', 'Pour-Balls']): 
             task_name_shorten = task['name']
             task_name = f'Humanoid-{task_name_shorten}-v0'
             print('='*100)
@@ -185,7 +185,7 @@ def main():
             if not os.path.exists(ckpt_dir):
                 os.makedirs(ckpt_dir)
                 print("Folder created:", ckpt_dir)
-            imitate_episodes_args = ['--task_name', task_name_shorten, '--policy_class', 'ACT', '--kl_weight' ,'10' ,'--chunk_size' ,'200' ,'--hidden_dim' ,'512', '--batch_size', '64' ,'--dim_feedforward', '3200' ,'--num_epochs', '35000',  '--lr' ,'5e-5' ,'--seed', '0' ,'--ckpt_dir' ,ckpt_dir]
+            imitate_episodes_args = ['--task_name', task_name_shorten, '--policy_class', 'ACT', '--kl_weight' ,'10' ,'--chunk_size' ,'200' ,'--hidden_dim' ,'512', '--batch_size', '40' ,'--dim_feedforward', '3200' ,'--num_epochs', '25000',  '--lr' ,'4e-5' ,'--seed', '0' ,'--ckpt_dir' ,ckpt_dir]
             imitate_episodes_script_path = f'{curr_dir_path}/imitate_episodes.py'
             run_script(imitate_episodes_script_path, imitate_episodes_args)
                     
