@@ -147,7 +147,7 @@ def run_script(script_path, args):
         for line in process.stdout:
             print(line, end='')
 
-def main():
+def main(args):
     curr_file_path = os.path.abspath(__file__)
     curr_dir_path = os.path.dirname(curr_file_path)
 
@@ -156,8 +156,10 @@ def main():
     service = authenticate_google_drive()
     tasks = list_files(service, folder_id)
     tasks.sort(reverse=True, key=lambda x: x['name'])
+    filterd_tasks = args.task.split(',') if args.task else [task['name'] for task in tasks]
+    print(filterd_tasks)
     for task in tqdm(tasks, desc='Tasks'):
-        if task['mimeType'] == 'application/vnd.google-apps.folder' and ( task['name'] not in [ 'Unload-Cans', 'Pour-Balls']): 
+        if task['mimeType'] == 'application/vnd.google-apps.folder' and ( task['name'] in filterd_tasks): 
             task_name_shorten = task['name']
             task_name = f'Humanoid-{task_name_shorten}-v0'
             print('='*100)
@@ -192,5 +194,6 @@ def main():
             gc.collect()
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--task', action='store', type=str)
     args = parser.parse_args()
-    main()
+    main(args)
